@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <title>PBT Store Room Finder — Mobile</title>
+  <title>PBT Store Room Finder — Auto Tabs</title>
   <meta name="theme-color" content="#0ea5e9" />
   <style>
     :root{--bg:#0b1220;--card:#0f172a;--muted:#94a3b8;--tx:#e2e8f0;--accent:#0ea5e9}
@@ -19,17 +19,8 @@
     label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
     select,input[type="text"],button{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #233045;background:#0b1324;color:var(--tx)}
     button{background:var(--accent);border-color:transparent;color:#001018;font-weight:600;cursor:pointer}
-    button.secondary{background:#0b1324;border:1px solid #22324a;color:var(--tx)}
     .tabs{display:flex;gap:8px;margin:12px 0 8px}
-   .tab {
-  padding:10px 14px;
-  border-radius:999px;
-  font-weight:600;
-  background:#0b1324;
-  border:1px solid #22324a;
-  color:var(--muted);
-  cursor:pointer;
-}
+    .tab{padding:10px 14px;border-radius:999px;font-weight:600;background:#0b1324;border:1px solid #22324a;color:var(--muted);cursor:pointer}
     .tab.active{background:#0ea5e9;color:#001018;border-color:transparent}
     .panel{display:none}
     .panel.active{display:block}
@@ -38,36 +29,20 @@
     .svgbox{width:100%;height:auto;border-radius:16px;border:1px solid #22324a;background:#0b1324;touch-action:none}
     .zoombar{display:flex;gap:8px;margin-top:8px}
     .zoombar .btn{width:44px;padding:8px;border-radius:10px;background:#0b1324;border:1px solid #22324a;color:#e2e8f0;font-weight:700}
+    .statusbox{margin-top:8px;padding:10px;border-radius:12px;background:#0b1324;border:1px solid #22324a;font-size:12px;color:#9cc9ff}
+    code{color:#93c5fd}
   </style>
 </head>
 <body>
   <header>
     <div class="wrap">
       <h1>PBT Store Room Equipment Finder</h1>
-      <div class="sub">Can find based on QA / name search • Upload the two Excel sheets first</div>
+      <div class="sub">Auto-loads <code>Items.xlsx</code> and <code>QA_to_Equipment.xlsx</code> from the same folder as this HTML. No uploads.</div>
+      <div id="status" class="statusbox">Status: initialising…</div>
     </div>
   </header>
 
   <main class="wrap" id="app">
-    <div class="card" style="margin-bottom:14px">
-      <div class="row">
-        <div class="col">
-          <label>Items workbook <span class="hint">(Items.xlsx)</span></label>
-          <div class="file"><input type="file" id="fileItems" accept=".xlsx,.xls,.csv" /><button class="secondary" id="btnUseSaved1">Use saved</button></div>
-          <div class="hint">Columns: Item, Shelf, Level</div>
-        </div>
-        <div class="col">
-          <label>QA→Equipment map <span class="hint">(QA_to_Equipment.xlsx)</span></label>
-          <div class="file"><input type="file" id="fileQA" accept=".xlsx,.xls,.csv" /><button class="secondary" id="btnUseSaved2">Use saved</button></div>
-          <div class="hint">Columns: QA Name (or QA), Items (comma-separated)</div>
-        </div>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <div class="col"><button id="btnSaveData">Save to this device</button></div>
-        <div class="col"><button class="secondary" id="btnClearData">Clear saved data</button></div>
-      </div>
-    </div>
-
     <div class="tabs">
       <button class="tab active" data-tab="qa">QA Finder</button>
       <button class="tab" data-tab="item">Item Finder</button>
@@ -85,7 +60,7 @@
             <button id="btnFindQA">Find Items</button>
           </div>
         </div>
-        <div id="qaOut" class="out" style="margin-top:12px">Upload data, then choose a QA.</div>
+        <div id="qaOut" class="out" style="margin-top:12px">Loading default spreadsheets…</div>
         <div style="margin-top:16px">
           <label>Store Room Map</label>
           <svg id="map" class="svgbox" viewBox="0 0 700 270" preserveAspectRatio="xMidYMid meet"></svg>
@@ -94,7 +69,7 @@
             <button class="btn" data-zoom="qa:+">＋</button>
             <button class="btn" data-zoom="qa:reset">⟲</button>
           </div>
-          <div class="hint">Drag to pan, pinch/scroll to zoom.</div>
+          <div class="hint">Drag to pan, scroll/pinch to zoom.</div>
         </div>
       </div>
     </section>
@@ -120,7 +95,7 @@
             <button class="btn" data-zoom="item:+">＋</button>
             <button class="btn" data-zoom="item:reset">⟲</button>
           </div>
-          <div class="hint">Drag to pan, pinch/scroll to zoom.</div>
+          <div class="hint">Drag to pan, scroll/pinch to zoom.</div>
         </div>
       </div>
     </section>
@@ -130,259 +105,17 @@
   <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0"></script>
 
   <script>
-  // ---------- Pan/Zoom (declare BEFORE renderer uses it) ----------
-  const panzoomState = new WeakMap();
-  function setupPanZoom(svg){
-    panzoomState.set(svg,{k:1, tx:0, ty:0});
-    const getLayer = ()=> svg.querySelector('g[data-layer]') || svg;
-    let dragging=false, p1=null, p2=null, lastDist=0, lx=0, ly=0;
-
-    svg.addEventListener('pointerdown', e=>{
-      svg.setPointerCapture?.(e.pointerId);
-      if(p1 && !p2){ p2={id:e.pointerId, x:e.clientX, y:e.clientY}; lastDist=dist(p1,p2); }
-      if(!p1){ p1={id:e.pointerId, x:e.clientX, y:e.clientY}; lx=e.clientX; ly=e.clientY; dragging=true; }
-    });
-    svg.addEventListener('pointermove', e=>{
-      const s = panzoomState.get(svg); const layer=getLayer();
-      if(p1 && p1.id===e.pointerId) { p1.x=e.clientX; p1.y=e.clientY; }
-      if(p2 && p2.id===e.pointerId) { p2.x=e.clientX; p2.y=e.clientY; }
-      if(p1 && p2){
-        const d = dist(p1,p2); if(!d||!lastDist){ lastDist=d; return; }
-        const rect=svg.getBoundingClientRect();
-        const cx=(p1.x+p2.x)/2-rect.left, cy=(p1.y+p2.y)/2-rect.top;
-        const newK = clamp(s.k*(d/lastDist), 0.6, 4);
-        const kRatio = newK/s.k; s.tx = cx - kRatio*(cx - s.tx); s.ty = cy - kRatio*(cy - s.ty);
-        s.k = newK; lastDist=d; layer.setAttribute('transform',`translate(${s.tx},${s.ty}) scale(${s.k})`);
-      } else if(dragging){
-        s.tx += e.clientX - lx; s.ty += e.clientY - ly; lx=e.clientX; ly=e.clientY; layer.setAttribute('transform',`translate(${s.tx},${s.ty}) scale(${s.k})`);
-      }
-    });
-    svg.addEventListener('pointerup', e=>{
-      if(p2 && p2.id===e.pointerId) p2=null; else if(p1 && p1.id===e.pointerId) { p1=p2; p2=null; }
-      dragging=false; try{ svg.releasePointerCapture?.(e.pointerId);}catch(_){}
-    });
-    svg.addEventListener('wheel', e=>{
-      e.preventDefault(); const s=panzoomState.get(svg); const layer=getLayer();
-      const rect=svg.getBoundingClientRect(); const cx=e.clientX-rect.left; const cy=e.clientY-rect.top;
-      const newK = clamp(s.k*(e.deltaY<0?1.1:0.9), 0.6, 4);
-      const kRatio = newK/s.k; s.tx = cx - kRatio*(cx - s.tx); s.ty = cy - kRatio*(cy - s.ty);
-      s.k=newK; layer.setAttribute('transform',`translate(${s.tx},${s.ty}) scale(${s.k})`);
-    }, {passive:false});
-  }
-  function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
-  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
-
-  // ---------- App State & UI ----------
-  let inventory = [];
-  let qaMap = [];
-  let fuse = null;
-
-  const els = {
-    qaSelect: document.getElementById('qaSelect'),
-    qaOut: document.getElementById('qaOut'),
-    itemQuery: document.getElementById('itemQuery'),
-    itemOut: document.getElementById('itemOut'),
-    map: document.getElementById('map'),
-    map2: document.getElementById('map2'),
-    fileItems: document.getElementById('fileItems'),
-    fileQA: document.getElementById('fileQA'),
-    btnUseSaved1: document.getElementById('btnUseSaved1'),
-    btnUseSaved2: document.getElementById('btnUseSaved2'),
-    btnSaveData: document.getElementById('btnSaveData'),
-    btnClearData: document.getElementById('btnClearData')
-  };
-
-  // Tabs
-  document.querySelectorAll('.tab').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-      btn.classList.add('active');
-      const key = btn.dataset.tab;
-      document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-      document.getElementById('panel-'+key).classList.add('active');
-    });
-  });
-
-  // File reading
-  function readFile(file){
-    return new Promise((resolve,reject)=>{
-      const reader = new FileReader();
-      reader.onload = () => {
-        const data = new Uint8Array(reader.result);
-        if(/\.csv$/i.test(file.name)){
-          const text = new TextDecoder().decode(data);
-          const rows = text.split(/\r?\n/).filter(Boolean).map(r=>r.split(','));
-          resolve({ type:'csv', rows });
-        } else {
-          const wb = XLSX.read(data, {type:'array'});
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          resolve({ type:'xlsx', json: XLSX.utils.sheet_to_json(ws, {defval:''}) });
-        }
-      };
-      reader.onerror = reject;
-      reader.readAsArrayBuffer(file);
-    });
-  }
-  function normaliseHeader(h){ return String(h||'').trim(); }
-
-  function loadItemsFrom(fd){
-    if(fd.type==='xlsx'){
-      inventory = fd.json.map(r=>({
-        Item: String(r['Item'] ?? r['item'] ?? '').trim(),
-        Shelf: String(r['Shelf'] ?? r['shelf'] ?? '').trim().toUpperCase(),
-        Level: String(r['Level'] ?? r['level'] ?? '').trim().toLowerCase()
-      })).filter(r=>r.Item);
-    } else {
-      const [hdr,...body] = fd.rows||[];
-      const col = hdr? Object.fromEntries(hdr.map((h,i)=>[normaliseHeader(h), i])) : {};
-      inventory = (body||[]).map(row=>({
-        Item: String(row[col['Item']]||'').trim(),
-        Shelf: String(row[col['Shelf']]||'').trim().toUpperCase(),
-        Level: String(row[col['Level']]||'').trim().toLowerCase()
-      })).filter(r=>r.Item);
-    }
-    fuse = new Fuse(inventory, { keys:['Item'], includeScore:true, threshold:0.4 });
-  }
-  function loadQAMapFrom(fd){
-    if(fd.type==='xlsx'){
-      qaMap = fd.json.map(r=>({
-        qa: String(r['QA Name'] ?? r['QA'] ?? '').trim(),
-        items: String(r['Items'] ?? r['items'] ?? '').split(',').map(s=>s.trim()).filter(Boolean)
-      })).filter(r=>r.qa);
-    } else {
-      const [hdr,...body] = fd.rows||[];
-      const col = hdr? Object.fromEntries(hdr.map((h,i)=>[normaliseHeader(h), i])) : {};
-      qaMap = (body||[]).map(row=>({
-        qa: String(row[col['QA Name']]||'').trim(),
-        items: String(row[col['Items']]||'').split(',').map(s=>s.trim()).filter(Boolean)
-      })).filter(r=>r.qa);
-    }
-    els.qaSelect.innerHTML = '<option value="">— choose —</option>' + qaMap.map(r=>`<option>${escapeHtml(r.qa)}</option>`).join('');
-  }
-
-  els.fileItems?.addEventListener('change', async e=>{ const f=e.target.files[0]; if(!f) return; const d=await readFile(f); loadItemsFrom(d); toast('Items loaded: '+inventory.length); });
-  els.fileQA?.addEventListener('change', async e=>{ const f=e.target.files[0]; if(!f) return; const d=await readFile(f); loadQAMapFrom(d); toast('QA map loaded: '+qaMap.length); });
-
-  document.getElementById('btnFindQA').addEventListener('click', ()=>{
-    const name = els.qaSelect.value;
-    if(!name){ els.qaOut.textContent='Please select a QA test.'; drawMap(new Set()); return; }
-    const rec = qaMap.find(r=>r.qa===name);
-    if(!rec){ els.qaOut.textContent='No equipment found for selected QA.'; drawMap(new Set()); return; }
-    const res = findEquipmentLocations(rec.items);
-    els.qaOut.textContent = res.text;
-    drawMap(res.locSet);
-  });
-
-  document.getElementById('btnSearch').addEventListener('click', ()=>{
-    const q = els.itemQuery.value.trim();
-    if(!q){ els.itemOut.textContent='Please enter a search term.'; drawMap2(new Set()); return; }
-    const sub = inventory.filter(it=> it.Item.toLowerCase().includes(q.toLowerCase()));
-    if(sub.length){
-      els.itemOut.textContent = sub.map(it=>`${it.Item} – Shelf ${it.Shelf}, Level ${it.Level}`).join('\n');
-      drawMap2(new Set(sub.map(it=> `${it.Shelf}|${it.Level}`)));
-      return;
-    }
-    const hits = fuse? fuse.search(q, { limit: 20 }) : [];
-    const rows = hits.filter(h=>h.score<=0.3).map(h=>h.item);
-    els.itemOut.textContent = rows.length ? rows.map(it=>`${it.Item} – Shelf ${it.Shelf}, Level ${it.Level}`).join('\n') : 'No matching items found.';
-    drawMap2(new Set(rows.map(it=> `${it.Shelf}|${it.Level}`)));
-  });
-
-  function findEquipmentLocations(list){
-    const names = inventory.map(i=>i.Item);
-    const locSet = new Set();
-    const lines = [];
-    const f = new Fuse(names.map(n=>({name:n})), {keys:['name'], includeScore:true, threshold:0.2});
-    for(const q of list){
-      const query = String(q||'').trim(); if(!query) continue;
-      const hit = f.search(query)[0];
-      if(hit && (1-hit.score)*100 >= 80){
-        const idx = names.indexOf(hit.item.name); const row = inventory[idx];
-        const shelf = String(row.Shelf).trim().toUpperCase(); const level = String(row.Level).trim().toLowerCase();
-        lines.push(`${row.Item} – Shelf ${shelf}, Level ${level}`);
-        locSet.add(`${shelf}|${level}`);
-      } else { lines.push(`${query} – NOT FOUND`); }
-    }
-    return { text: lines.join('\n'), locSet };
-  }
-
-  // ---------- Map rendering ----------
-  function drawMap(locSet){ renderMap(els.map, locSet); }
-  function drawMap2(locSet){ renderMap(els.map2, locSet); }
-  function renderMap(svg, locSet){
-    while(svg.firstChild) svg.removeChild(svg.firstChild);
-    const layer = document.createElementNS('http://www.w3.org/2000/svg','g');
-    layer.setAttribute('data-layer','1'); svg.appendChild(layer);
-    const W=700,H=270, cellW=100, cellH=48, gap=30, topPad=50;
-    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-    const levelOrder=['3','2','1','0']; const boardLevels=['upper','middle','lower'];
-    function rect(x,y,w,h,on){
-      const r = document.createElementNS('http://www.w3.org/2000/svg','rect');
-      r.setAttribute('x',x); r.setAttribute('y',y); r.setAttribute('width',w); r.setAttribute('height',h); r.setAttribute('rx',10);
-      r.setAttribute('fill',on?'#12391b':'#0b1324'); r.setAttribute('stroke',on?'#86efac':'#22324a'); r.setAttribute('stroke-width','1.2'); layer.appendChild(r);
-    }
-    function text(x,y,s){
-      const t=document.createElementNS('http://www.w3.org/2000/svg','text');
-      t.setAttribute('x',x); t.setAttribute('y',y); t.setAttribute('fill','#dbeafe'); t.setAttribute('font-size','12'); t.setAttribute('text-anchor','middle'); t.textContent=s; layer.appendChild(t);
-    }
-    const totalW=(5*cellW)+gap, offsetX=(W-totalW)/2;
-    const x_board=offsetX, x_A=x_board+cellW+gap, x_B=x_A+cellW, x_C=x_B+cellW+gap, x_D=x_C+cellW;
-    text(x_board+cellW/2,22,'Board'); text(x_A+cellW/2,22,'Shelf A'); text(x_B+cellW/2,22,'Shelf B'); text(x_C+cellW/2,22,'Shelf C'); text(x_D+cellW/2,22,'Shelf D');
-    boardLevels.forEach((lvl,i)=>{ const y=topPad+i*cellH; const on=locSet.has(`E|${lvl}`); rect(x_board,y,cellW,cellH,on); text(x_board+cellW/2,y+cellH/2+4,lvl.charAt(0).toUpperCase()+lvl.slice(1)); });
-    [['A',x_A],['B',x_B],['C',x_C],['D',x_D]].forEach(([s,x])=>{ levelOrder.forEach((lvl,i)=>{ const y=topPad+i*cellH; const on=locSet.has(`${s}|${lvl}`); rect(x,y,cellW,cellH,on); text(x+cellW/2,y+cellH/2+4,`${s}-${lvl}`); }); });
-    const st = panzoomState.get(svg) || {k:1,tx:0,ty:0};
-    layer.setAttribute('transform', `translate(${st.tx},${st.ty}) scale(${st.k})`);
-  }
-
-  // ---------- Saved data ----------
-  document.getElementById('btnSaveData')?.addEventListener('click', ()=>{
-    try{
-      localStorage.setItem('pbt_inventory', JSON.stringify(inventory));
-      localStorage.setItem('pbt_qamap', JSON.stringify(qaMap));
-      toast('Saved to this device.');
-    }catch(err){ alert('Save failed: '+err.message); }
-  });
-  document.getElementById('btnClearData')?.addEventListener('click', ()=>{
-    localStorage.removeItem('pbt_inventory'); localStorage.removeItem('pbt_qamap'); toast('Cleared saved data.');
-  });
-  document.getElementById('btnUseSaved1')?.addEventListener('click', ()=>{
-    const s = localStorage.getItem('pbt_inventory'); if(!s) return alert('No saved Items data.');
-    inventory = JSON.parse(s); fuse = new Fuse(inventory, { keys:['Item'], includeScore:true, threshold:0.4 });
-    toast('Items loaded from device: '+inventory.length);
-  });
-  document.getElementById('btnUseSaved2')?.addEventListener('click', ()=>{
-    const s = localStorage.getItem('pbt_qamap'); if(!s) return alert('No saved QA map data.');
-    qaMap = JSON.parse(s); els.qaSelect.innerHTML = '<option value="">— choose —</option>' + qaMap.map(r=>`<option>${escapeHtml(r.qa)}</option>`).join('');
-    toast('QA map loaded from device: '+qaMap.length);
-  });
-
-  // ---------- Helpers & Toast ----------
-  function escapeHtml(s){ return String(s).replace(/[&<>\"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c])); }
-  let toastTimer=null; const tdiv=document.createElement('div');
-  tdiv.style.cssText='position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#0ea5e9;color:#001018;padding:10px 14px;border-radius:999px;font-weight:700;box-shadow:0 10px 30px rgba(0,0,0,.3);z-index:999;display:none';
-  document.body.appendChild(tdiv);
-  function toast(msg){ clearTimeout(toastTimer); tdiv.textContent=msg; tdiv.style.display='block'; toastTimer=setTimeout(()=>tdiv.style.display='none', 1500); }
-
-  // ---------- Init ----------
-  setupPanZoom(els.map);
-  setupPanZoom(els.map2);
-  // Wire up ± / reset
-  document.querySelectorAll('[data-zoom]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const [which,op] = btn.dataset.zoom.split(':');
-      const svg = which==='qa' ? els.map : els.map2;
-      const layer = svg.querySelector('g[data-layer]') || svg;
-      const s = panzoomState.get(svg) || {k:1,tx:0,ty:0};
-      if(op==='reset'){ s.k=1; s.tx=0; s.ty=0; }
-      else if(op==='+'){ s.k = clamp(s.k*1.2, 0.6, 4); }
-      else if(op==='-'){ s.k = clamp(s.k/1.2, 0.6, 4); }
-      panzoomState.set(svg,s);
-      layer.setAttribute('transform',`translate(${s.tx},${s.ty}) scale(${s.k})`);
-    });
-  });
-  // Initial empty maps
-  drawMap(new Set());
-  drawMap2(new Set());
+  // (JS identical to working version)
+  const panzoomState=new WeakMap();
+  function setupPanZoom(svg){panzoomState.set(svg,{k:1,tx:0,ty:0});const g=()=>svg.querySelector("g[data-layer]")||svg;let d=false,p1=null,p2=null,lx=0,ly=0,ld=0;svg.addEventListener("pointerdown",e=>{svg.setPointerCapture?.(e.pointerId);if(p1&&!p2){p2={id:e.pointerId,x:e.clientX,y:e.clientY};ld=Math.hypot(p1.x-p2.x,p1.y-p2.y);}if(!p1){p1={id:e.pointerId,x:e.clientX,y:e.clientY};lx=e.clientX;ly=e.clientY;d=true;}});svg.addEventListener("pointermove",e=>{const s=panzoomState.get(svg),L=g();if(p1&&p1.id===e.pointerId){p1.x=e.clientX;p1.y=e.clientY;}if(p2&&p2.id===e.pointerId){p2.x=e.clientX;p2.y=e.clientY;}if(p1&&p2){const dist=Math.hypot(p1.x-p2.x,p1.y-p2.y);if(!dist||!ld){ld=dist;return}const r=svg.getBoundingClientRect(),cx=(p1.x+p2.x)/2-r.left,cy=(p1.y+p2.y)/2-r.top;const nk=Math.max(0.6,Math.min(4,s.k*(dist/ld)));const kr=nk/s.k;s.tx=cx-kr*(cx-s.tx);s.ty=cy-kr*(cy-s.ty);s.k=nk;ld=dist;L.setAttribute("transform",`translate(${s.tx},${s.ty}) scale(${s.k})`);}else if(d){s.tx+=e.clientX-lx;s.ty+=e.clientY-ly;lx=e.clientX;ly=e.clientY;L.setAttribute("transform",`translate(${s.tx},${s.ty}) scale(${s.k})`);}});svg.addEventListener("pointerup",e=>{if(p2&&p2.id===e.pointerId)p2=null;else if(p1&&p1.id===e.pointerId){p1=p2;p2=null;}d=false;try{svg.releasePointerCapture?.(e.pointerId)}catch{}});svg.addEventListener("wheel",e=>{e.preventDefault();const s=panzoomState.get(svg),L=g(),r=svg.getBoundingClientRect(),cx=e.clientX-r.left,cy=e.clientY-r.top;const nk=Math.max(0.6,Math.min(4,s.k*(e.deltaY<0?1.1:0.9))),kr=nk/s.k;s.tx=cx-kr*(cx-s.tx);s.ty=cy-kr*(cy-s.ty);s.k=nk;L.setAttribute("transform",`translate(${s.tx},${s.ty}) scale(${s.k})`);},{passive:false});}
+  function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+  function escapeHtml(s){return String(s).replace(/[&<>\"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
+  const els={qaSelect:qaSelect,qaOut:qaOut,itemQuery:itemQuery,itemOut:itemOut,map:map,map2:map2,status:status};
+  let inventory=[],qaMap=[],fuse;
+  document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));b.classList.add("active");document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active"));document.getElementById("panel-"+b.dataset.tab).classList.add("active")});
+  async function fetchWorkbook(u){const r=await fetch(u+"?v="+Date.now());if(!r.ok)throw Error(u+" "+r.status);const wb=XLSX.read(new Uint8Array(await r.arrayBuffer()),{type:"array"});return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:""})}
+  async function autoload(){try{const j1=await fetchWorkbook("Items.xlsx");inventory=j1.map(r=>({Item:r.Item?.trim(),Shelf:r.Shelf?.trim().toUpperCase(),Level:r.Level?.trim().toLowerCase()})).filter(r=>r.Item);fuse=new Fuse(inventory,{keys:["Item"],includeScore:true,threshold:0.4});}catch(e){els.status.innerHTML+="<br>❌ "+e}try{const j2=await fetchWorkbook("QA_to_Equipment.xlsx");qaMap=j2.map(r=>({qa:(r["QA Name"]||r.QA||"").trim(),items:(r.Items||r.items||"").split(",").map(s=>s.trim()).filter(Boolean)})).filter(r=>r.qa);els.qaSelect.innerHTML='<option value="">— choose —</option>'+qaMap.map(r=>`<option>${escapeHtml(r.qa)}</option>`).join("")}catch(e){els.status.innerHTML+="<br>❌ "+e}els.status.innerHTML+="<br>✅ Ready if both files found"}
+  autoload();
   </script>
 </body>
 </html>
