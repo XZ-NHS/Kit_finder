@@ -212,7 +212,6 @@
     const okItems=inventory.length>0, okQA=qaMap.length>0;
     els.status.innerHTML = [
       'Status: ' + (okItems?'Items ✅':'Items ⛔') + ' · ' + (okQA?'QA map ✅':'QA map ⛔'),
-      '<div style="margin-top:6px">Files must be in the same folder as this HTML. Names are case-sensitive: <code>'+FILE_ITEMS+'</code>, <code>'+FILE_QA+'</code>.</div>',
       problems.length ? '<div style="margin-top:6px;color:#fca5a5">Diagnostics:<br>• '+problems.join('<br>• ')+'</div>' : ''
     ].join('');
     if(okItems && okQA){ els.qaOut.textContent='Choose a QA to list items and highlight locations.'; }
