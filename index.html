@@ -9,13 +9,7 @@
     :root{--bg:#0b1220;--card:#0f172a;--muted:#94a3b8;--tx:#e2e8f0;--accent:#0ea5e9}
     *{box-sizing:border-box}
     body{margin:0;background:#0b1220;color:var(--tx);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial}
-    /* Force header to be non-sticky on all browsers */
-    header{
-      position: static !important;
-      top: auto !important;
-      background:#0b1220;
-      border-bottom:1px solid #1e293b
-    }
+    header{position:sticky;top:0;background:#0b1220;border-bottom:1px solid #1e293b;z-index:5}
     .wrap{max-width:980px;margin:0 auto;padding:18px}
     h1{font-size:22px;margin:0 0 4px}
     .sub{color:var(--muted);font-size:13px}
@@ -43,7 +37,7 @@
   <header>
     <div class="wrap">
       <h1>PBT Store Room Equipment Finder</h1>
-      <div class="sub">Select a QA from the list in the <code>QA finder</code> or type in the search box in the <code>Item finder</code> to see the locations highlighted in the map below</div>
+      <div class="sub">Select a QA from the list in the <code>QA finder</code> or type in the search box in the <code>Item finder</code> to see the locations highlighted in the map below </div>
       <div id="status" class="statusbox">Status: initialising…</div>
     </div>
   </header>
@@ -111,7 +105,7 @@
   <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0"></script>
 
   <script>
-  // ---------- Pan/Zoom ----------
+  // --- Pan/Zoom ---
   const panzoomState=new WeakMap();
   function setupPanZoom(svg){
     panzoomState.set(svg,{k:1,tx:0,ty:0});
@@ -120,7 +114,7 @@
     svg.addEventListener('pointerdown',e=>{
       svg.setPointerCapture?.(e.pointerId);
       if(p1&&!p2){p2={id:e.pointerId,x:e.clientX,y:e.clientY};lastDist=dist(p1,p2);}
-      if(!p1){p1={id:e.pointerId,x:e.clientX,y=e.clientY};lx=e.clientX;ly=e.clientY;dragging=true;}
+      if(!p1){p1={id:e.pointerId,x:e.clientX,y:e.clientY};lx=e.clientX;ly=e.clientY;dragging=true;}
     });
     svg.addEventListener('pointermove',e=>{
       const s=panzoomState.get(svg),layer=getLayer();
@@ -151,7 +145,7 @@
   function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
   function clamp(v,min,max){return Math.max(min,Math.min(max,v))}
 
-  // ---------- App State ----------
+  // --- App state ---
   let inventory=[], qaMap=[], fuse=null;
   const els={
     qaSelect: document.getElementById('qaSelect'),
@@ -174,54 +168,42 @@
     });
   });
 
-  // ---------- Workbook fetch (tries Items.xlsx then items.xlsx) ----------
+  // --- Fetch helpers ---
   async function fetchWorkbook(url){
-    const res=await fetch(url+(url.includes('?')?'&':'?')+'v='+Date.now(),{cache:'no-store'});
+    const res=await fetch(url+(url.includes('?')?'&':'?')+'v='+Date.now(), {cache:'no-store'});
     if(!res.ok){ throw new Error(JSON.stringify({url,status:res.status,statusText:res.statusText})); }
     const buf=await res.arrayBuffer();
     const wb=XLSX.read(new Uint8Array(buf),{type:'array'});
     const ws=wb.Sheets[wb.SheetNames[0]];
     return XLSX.utils.sheet_to_json(ws,{defval:''});
   }
-  async function fetchItemsAnyCase(){
-    const candidates=['Items.xlsx','items.xlsx'];
-    const errors=[];
-    for(const f of candidates){
-      try{
-        const json=await fetchWorkbook(new URL(f, location.href).toString());
-        return {json, tried:f, error:null};
-      }catch(e){ errors.push(`Tried ${f}: ${e.message}`); }
-    }
-    return {json:null, tried:candidates.join(', '), error:errors.join(' | ')};
-  }
 
-  // ---------- Loaders (robust headers) ----------
-  function getVal(r, keys){ for(const k of keys){ if(r[k]!=null && String(r[k]).trim()!=='') return String(r[k]).trim(); } return ''; }
   function loadItemsFrom(json){
     inventory = json.map(r=>({
-      Item:  getVal(r, ['Item','item','ITEM']),
-      Shelf: getVal(r, ['Shelf','shelf','SHELF']).toUpperCase(),
-      Level: getVal(r, ['Level','level','LEVEL']).toLowerCase()
+      Item: String(r['Item'] ?? r['item'] ?? '').trim(),
+      Shelf: String(r['Shelf'] ?? r['shelf'] ?? '').trim().toUpperCase(),
+      Level: String(r['Level'] ?? r['level'] ?? '').trim().toLowerCase()
     })).filter(r=>r.Item);
     fuse = new Fuse(inventory,{keys:['Item'],includeScore:true,threshold:0.4});
   }
   function loadQAMapFrom(json){
     qaMap = json.map(r=>({
-      qa:    getVal(r, ['QA Name','QA','qa']),
-      items: getVal(r, ['Items','items']).split(',').map(s=>s.trim()).filter(Boolean)
+      qa: String(r['QA Name'] ?? r['QA'] ?? '').trim(),
+      items: String(r['Items'] ?? r['items'] ?? '').split(',').map(s=>s.trim()).filter(Boolean)
     })).filter(r=>r.qa);
     els.qaSelect.innerHTML = '<option value="">— choose —</option>' +
       qaMap.map(r=>`<option>${escapeHtml(r.qa)}</option>`).join('');
   }
 
-  // ---------- Autoload ----------
+  const FILE_ITEMS='Items.xlsx';
   const FILE_QA='QA_to_Equipment.xlsx';
-  async function autoload(){
-    const problems=[];
-    const itemsRes = await fetchItemsAnyCase();
-    if(itemsRes.json){ loadItemsFrom(itemsRes.json); }
-    else { problems.push('Items.xlsx fetch failed: '+itemsRes.error); }
 
+  async function autoloadFromRepo(){
+    const problems=[];
+    try{
+      const itemsJson=await fetchWorkbook(new URL(FILE_ITEMS, location.href).toString());
+      loadItemsFrom(itemsJson);
+    }catch(e){ problems.push('Items.xlsx fetch error: '+e.message); }
     try{
       const qaJson=await fetchWorkbook(new URL(FILE_QA, location.href).toString());
       loadQAMapFrom(qaJson);
@@ -230,14 +212,12 @@
     const okItems=inventory.length>0, okQA=qaMap.length>0;
     els.status.innerHTML = [
       'Status: ' + (okItems?'Items ✅':'Items ⛔') + ' · ' + (okQA?'QA map ✅':'QA map ⛔'),
-      '<div style="margin-top:6px">Files must be in this folder. Names are case-sensitive: <code>Items.xlsx</code>, <code>'+FILE_QA+'</code>.</div>',
-      itemsRes.tried ? '<div style="margin-top:6px">Items tried: <code>'+itemsRes.tried+'</code></div>' : '',
       problems.length ? '<div style="margin-top:6px;color:#fca5a5">Diagnostics:<br>• '+problems.join('<br>• ')+'</div>' : ''
     ].join('');
     if(okItems && okQA){ els.qaOut.textContent='Choose a QA to list items and highlight locations.'; }
   }
 
-  // ---------- Actions ----------
+  // --- Actions ---
   document.getElementById('btnFindQA').addEventListener('click', ()=>{
     const name=els.qaSelect.value;
     if(!name){ els.qaOut.textContent='Please select a QA test.'; drawMap(new Set()); return; }
@@ -282,7 +262,7 @@
     return { text: lines.join('\n'), locSet };
   }
 
-  // ---------- Map rendering ----------
+  // --- Map drawing ---
   function drawMap(locSet){ renderMap(els.map, locSet); }
   function drawMap2(locSet){ renderMap(els.map2, locSet); }
   function renderMap(svg, locSet){
@@ -314,7 +294,7 @@
 
   function escapeHtml(s){ return String(s).replace(/[&<>\"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c])); }
 
-  // ---------- Init ----------
+  // --- Init ---
   setupPanZoom(els.map);
   setupPanZoom(els.map2);
   document.querySelectorAll('[data-zoom]').forEach(btn=>{
@@ -332,7 +312,7 @@
   });
   drawMap(new Set());
   drawMap2(new Set());
-  autoload();
+  autoloadFromRepo();
   </script>
 </body>
 </html>
