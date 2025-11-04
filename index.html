@@ -233,7 +233,7 @@
     if(!q){ els.itemOut.textContent='Please enter a search term.'; drawMap2(new Set()); return; }
     const sub=inventory.filter(it=>it.Item.toLowerCase().includes(q.toLowerCase()));
     if(sub.length){
-      els.itemOut.textContent=sub.map(it=>`${it.Item} – Shelf ${it.Shelf}, Level ${it.Level}`).join('\n');
+      els.itemOut.textContent=sub.map(it=>`${it.Item} – ${it.Shelf}, Level ${it.Level}`).join('\n');
       drawMap2(new Set(sub.map(it=>`${it.Shelf}|${it.Level}`)));
       return;
     }
@@ -283,8 +283,8 @@
     }
     const totalW=(5*cellW)+gap, offsetX=(W-totalW)/2;
     const x_board=offsetX, x_A=x_board+cellW+gap, x_B=x_A+cellW, x_C=x_B+cellW+gap, x_D=x_C+cellW;
-    text(x_board+cellW/2,22,'Board'); text(x_A+cellW/2,22,'Shelf A'); text(x_B+cellW/2,22,'Shelf B'); text(x_C+cellW/2,22,'Shelf C'); text(x_D+cellW/2,22,'Shelf D');
-    boardLevels.forEach((lvl,i)=>{ const y=topPad+i*cellH; const on=locSet.has(`E|${lvl}`); rect(x_board,y,cellW,cellH,on); text(x_board+cellW/2,y+cellH/2+4,lvl.charAt(0).toUpperCase()+lvl.slice(1)); });
+    text(x_board + cellW/2, 22, 'Pegboard'); text(x_A+cellW/2,22,'Shelf A'); text(x_B+cellW/2,22,'Shelf B'); text(x_C+cellW/2,22,'Shelf C'); text(x_D+cellW/2,22,'Shelf D');
+    boardLevels.forEach((lvl,i)=>{ const y=topPad+i*cellH; const on=locSet.has(`Pegboard|${lvl}`); rect(x_board,y,cellW,cellH,on); text(x_board+cellW/2,y+cellH/2+4,lvl.charAt(0).toUpperCase()+lvl.slice(1)); });
     [['A',x_A],['B',x_B],['C',x_C],['D',x_D]].forEach(([s,x])=>{
       levelOrder.forEach((lvl,i)=>{ const y=topPad+i*cellH; const on=locSet.has(`${s}|${lvl}`); rect(x,y,cellW,cellH,on); text(x+cellW/2,y+cellH/2+4,`${s}-${lvl}`); });
     });
