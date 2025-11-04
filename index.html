@@ -181,8 +181,8 @@
   function loadItemsFrom(json){
     inventory = json.map(r=>({
       Item: String(r['Item'] ?? r['item'] ?? '').trim(),
-      Shelf: String(r['Shelf'] ?? r['shelf'] ?? '').trim().toUpperCase(),
-      Level: String(r['Level'] ?? r['level'] ?? '').trim().toLowerCase()
+      Shelf: String(r['Shelf'] ?? r['shelf'] ?? '').trim(),          // keep as Excel
+      Level: String(r['Level'] ?? r['level'] ?? '').trim().toLowerCase() // lower for matching
     })).filter(r=>r.Item);
     fuse = new Fuse(inventory,{keys:['Item'],includeScore:true,threshold:0.4});
   }
@@ -223,6 +223,7 @@
     if(!name){ els.qaOut.textContent='Please select a QA test.'; drawMap(new Set()); return; }
     const rec=qaMap.find(r=>r.qa===name);
     if(!rec){ els.qaOut.textContent='No equipment found for selected QA.'; drawMap(new Set()); return; }
+
     const res=findEquipmentLocations(rec.items);
     els.qaOut.textContent=res.text;
     drawMap(res.locSet);
@@ -231,33 +232,45 @@
   document.getElementById('btnSearch').addEventListener('click', ()=>{
     const q=els.itemQuery.value.trim();
     if(!q){ els.itemOut.textContent='Please enter a search term.'; drawMap2(new Set()); return; }
+
+    // Exact substring matches first
     const sub=inventory.filter(it=>it.Item.toLowerCase().includes(q.toLowerCase()));
     if(sub.length){
       els.itemOut.textContent=sub.map(it=>`${it.Item} – ${it.Shelf}, Level ${it.Level}`).join('\n');
       drawMap2(new Set(sub.map(it=>`${it.Shelf}|${it.Level}`)));
       return;
     }
+
+    // Fuzzy fallback
     const hits=fuse?fuse.search(q,{limit:20}):[];
     const rows=hits.filter(h=>h.score<=0.3).map(h=>h.item);
     els.itemOut.textContent = rows.length
-      ? rows.map(it=>`${it.Item} – Shelf ${it.Shelf}, Level ${it.Level}`).join('\n')
+      ? rows.map(it=>`${it.Item} – ${it.Shelf}, Level ${it.Level}`).join('\n')
       : 'No matching items found.';
     drawMap2(new Set(rows.map(it=>`${it.Shelf}|${it.Level}`)));
   });
 
+  // Generate locations for a QA list
   function findEquipmentLocations(list){
     const names=inventory.map(i=>i.Item);
     const locSet=new Set(), lines=[];
     const f=new Fuse(names.map(n=>({name:n})),{keys:['name'],includeScore:true,threshold:0.2});
+
     for(const q of list){
       const query=String(q||'').trim(); if(!query) continue;
       const hit=f.search(query)[0];
+
       if(hit && (1-hit.score)*100>=80){
-        const idx=names.indexOf(hit.item.name); const row=inventory[idx];
-        const shelf=String(row.Shelf).trim().toUpperCase(); const level=String(row.Level).trim().toLowerCase();
-        lines.push(`${row.Item} – Shelf ${shelf}, Level ${level}`);
-        locSet.add(`${shelf}|${level}`);
-      } else { lines.push(`${query} – NOT FOUND`); }
+        const idx=names.indexOf(hit.item.name);
+        const row=inventory[idx];
+        const shelf=String(row.Shelf).trim();         // exact as Excel
+        const level=String(row.Level).trim().toLowerCase(); // normalized
+
+        lines.push(`${row.Item} – ${shelf}, Level ${level}`);
+        locSet.add(`${shelf}|${level}`);              // <— single canonical key
+      } else {
+        lines.push(`${query} – NOT FOUND`);
+      }
     }
     return { text: lines.join('\n'), locSet };
   }
@@ -265,13 +278,18 @@
   // --- Map drawing ---
   function drawMap(locSet){ renderMap(els.map, locSet); }
   function drawMap2(locSet){ renderMap(els.map2, locSet); }
+
   function renderMap(svg, locSet){
     while(svg.firstChild) svg.removeChild(svg.firstChild);
     const layer=document.createElementNS('http://www.w3.org/2000/svg','g');
     layer.setAttribute('data-layer','1'); svg.appendChild(layer);
+
     const W=700,H=270, cellW=100, cellH=48, gap=30, topPad=50;
     svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-    const levelOrder=['3','2','1','0']; const boardLevels=['upper','middle','lower'];
+
+    const levelOrder=['3','2','1','0'];          // shelves A–D
+    const boardLevels=['upper','middle','lower']; // Pegboard
+
     function rect(x,y,w,h,on){
       const r=document.createElementNS('http://www.w3.org/2000/svg','rect');
       r.setAttribute('x',x); r.setAttribute('y',y); r.setAttribute('width',w); r.setAttribute('height',h); r.setAttribute('rx',10);
@@ -281,13 +299,35 @@
       const t=document.createElementNS('http://www.w3.org/2000/svg','text');
       t.setAttribute('x',x); t.setAttribute('y',y); t.setAttribute('fill','#dbeafe'); t.setAttribute('font-size','12'); t.setAttribute('text-anchor','middle'); t.textContent=s; layer.appendChild(t);
     }
+
     const totalW=(5*cellW)+gap, offsetX=(W-totalW)/2;
     const x_board=offsetX, x_A=x_board+cellW+gap, x_B=x_A+cellW, x_C=x_B+cellW+gap, x_D=x_C+cellW;
-    text(x_board + cellW/2, 22, 'Pegboard'); text(x_A+cellW/2,22,'Shelf A'); text(x_B+cellW/2,22,'Shelf B'); text(x_C+cellW/2,22,'Shelf C'); text(x_D+cellW/2,22,'Shelf D');
-    boardLevels.forEach((lvl,i)=>{ const y=topPad+i*cellH; const on=locSet.has(`Pegboard|${lvl}`); rect(x_board,y,cellW,cellH,on); text(x_board+cellW/2,y+cellH/2+4,lvl.charAt(0).toUpperCase()+lvl.slice(1)); });
-    [['A',x_A],['B',x_B],['C',x_C],['D',x_D]].forEach(([s,x])=>{
-      levelOrder.forEach((lvl,i)=>{ const y=topPad+i*cellH; const on=locSet.has(`${s}|${lvl}`); rect(x,y,cellW,cellH,on); text(x+cellW/2,y+cellH/2+4,`${s}-${lvl}`); });
+
+    // Headers
+    text(x_board + cellW/2, 22, 'Pegboard');
+    text(x_A+cellW/2,22,'Shelf A');
+    text(x_B+cellW/2,22,'Shelf B');
+    text(x_C+cellW/2,22,'Shelf C');
+    text(x_D+cellW/2,22,'Shelf D');
+
+    // Pegboard cells: keys Pegboard|upper/middle/lower
+    boardLevels.forEach((lvl,i)=>{
+      const y=topPad+i*cellH;
+      const on=locSet.has(`Pegboard|${lvl}`);
+      rect(x_board,y,cellW,cellH,on);
+      text(x_board+cellW/2,y+cellH/2+4,lvl.charAt(0).toUpperCase()+lvl.slice(1));
     });
+
+    // Shelves A–D: keys Shelf A|3..0 etc.
+    [['Shelf A',x_A],['Shelf B',x_B],['Shelf C',x_C],['Shelf D',x_D]].forEach(([s,x])=>{
+      levelOrder.forEach((lvl,i)=>{
+        const y=topPad+i*cellH;
+        const on=locSet.has(`${s}|${lvl}`);
+        rect(x,y,cellW,cellH,on);
+        text(x+cellW/2,y+cellH/2+4,`${s.split(' ')[1]}-${lvl}`);
+      });
+    });
+
     const st=panzoomState.get(svg)||{k:1,tx:0,ty:0};
     layer.setAttribute('transform',`translate(${st.tx},${st.ty}) scale(${st.k})`);
   }
@@ -310,9 +350,11 @@
       layer.setAttribute('transform',`translate(${s.tx},${s.ty}) scale(${s.k})`);
     });
   });
+
   drawMap(new Set());
   drawMap2(new Set());
   autoloadFromRepo();
   </script>
 </body>
 </html>
+
